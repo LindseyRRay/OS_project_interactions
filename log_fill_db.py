@@ -6,6 +6,8 @@ from gitlog_parser import gen_save_commitlog
 from fill_db import fill_db
 
 
+# sample command for jsipfs python analysis/log_fill_db.py '/Users/Lraymond/Python/gitkit_research/js-ipfs'
+
 if __name__ == '__main__':
     str_date = datetime.datetime.now().strftime('%Y-%m-%d')
 

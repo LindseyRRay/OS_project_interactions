@@ -13,6 +13,8 @@ from helpers import serialize_to_dict
 
 
 from objects import Commit, Commit_info, Statistic, FileChange
+# this is max characters at the end of a regex
+MAX_EXTENSION = 10
 
 
 def is_match(reg, line):
@@ -48,7 +50,7 @@ def make_commit(line):
 
 
 def is_stats(line):
-    stats_reg = r'\d{1,10}\t\d{1,10}\t.+\.\w{1,6}'
+    stats_reg = r'\d{1,MAX_EXTENSION}}\t\d{1,MAX_EXTENSION}}\t.+\.\w{1,6}'
     return is_match(stats_reg, line)
 
 
@@ -176,7 +178,7 @@ def check_start_diff(line):
     '''
     Check for the start of a file changed in the diff output
     '''
-    d_reg = r'diff --git a/(.+\.\w{1,5})\b\s+\bb/(.+\.\w{1,5})'
+    d_reg = r'diff --git a/(.+\.\w{1,MAX_EXTENSION}})\b\s+\bb/(.+\.\w{1,MAX_EXTENSION}})'
     return is_match(d_reg, line)
 
 
@@ -184,7 +186,7 @@ def parse_filename(line):
     '''
     Parse Filename changed from start of the diff
     '''
-    d_reg = r'diff --git a/(.+\.\w{1,5})\b\s+\bb/(.+\.\w{1,5})'
+    d_reg = r'diff --git a/(.+\.\w{1,MAX_EXTENSION}})\b\s+\bb/(.+\.\w{1,MAX_EXTENSION}})'
     m = re.search(d_reg, line)
     names = m.groups()
     # note the filenames should be identical except in the case of a rename
@@ -223,7 +225,7 @@ def is_filenames_changed(line):
     '+++ b/src/core/components/libp2p.js'
     Note that new files will have /dev/null as the old filename
     '''
-    l_reg = r'--- a/(.+\.\w{1,5})|\+\+\+ b/(.+\.\w{1,5})'
+    l_reg = r'--- a/(.+\.\w{1,MAX_EXTENSION}})|\+\+\+ b/(.+\.\w{1,MAX_EXTENSION}})'
     filenames = is_match(l_reg, line)
     if filenames:
         return True
@@ -248,7 +250,7 @@ def get_filenames_changed(line):
     m = re.search(l_reg, line)
     if m:
         return None, '/dev/null'
-    l_reg = r'--- a/(.+\.\w{1,5})|\+\+\+ b/(.+\.\w{1,5})'
+    l_reg = r'--- a/(.+\.\w{1,MAX_EXTENSION})|\+\+\+ b/(.+\.\w{1,MAX_EXTENSION}})'
     m = re.search(l_reg, line)
     g = m.groups()
     return g
