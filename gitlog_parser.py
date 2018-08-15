@@ -5,19 +5,25 @@ import re
 import funcy
 
 
-from dev import DATA_DIR, DELIM, JSIPFS_REPO_PATH, JSIPFS_START, JS_IPFS_PARSED_COMMITS_FILENAME, GIT_LOG_FORMAT
+from analysis.dev import DATA_DIR, GIT_LOG_FORMAT, DELIM
+from analysis.parsing_regex import JS_IPFS_REGEX_DICT, GO_ETHEREUM_REGEX_DICT
 
-from test_parselog import run_loc_test, count_png_errors, check_test_dict
-from test_data import TEST_COM10, TEST_COM1000
-from helpers import serialize_to_dict
+from analysis.test_parselog import run_loc_test, count_png_errors, check_test_dict
+from analysis.test_data import TEST_COM10, TEST_COM1000, TEST_GOETH_2016, TEST_GOETH_2017, TEST_GOETH_2018
+from analysis.helpers import serialize_to_dict
 
 
-from objects import Commit, Commit_info, Statistic, FileChange
+from analysis.objects import Commit, Commit_info, Statistic, FileChange
 # this is max characters at the end of a regex
-MAX_EXTENSION = 10
+MAX_STATS_LEN = 10
+MAX_FILE_EXT_LEN = 3
+# for js-ipfs, this value should be 6 MAX_FILE_EXT_LEN = 6
+# for go-etherem, hashes are 40 long and git id hash abbrev is 9
+# for jsipfs the sha1 hash is 32 long and the git id is 7 long
 
 
 def is_match(reg, line):
+    # search will look for match over the entire string, match will onlyu look for matches starting at the beginning
     m = re.search(reg, line)
     return bool(m is not None)
 
@@ -35,41 +41,13 @@ def fix_refs(refs_string):
     return as_list(refs_string.strip()[1:-1].split(', '))
 
 
-def is_commit(line, delim=DELIM):
-    commit_reg = r'[a-f0-9]{32}' + delim + '[a-f0-9]{7}' + delim + '[a-f0-9]{32}'
-    return is_match(commit_reg, line)
-
-
-def make_commit(line):
-    #     commit_line = re.sub(r'----',' ', commit_line.decode('utf-8'))
-    comm_args = line.split(DELIM)
-    comm_args.append(line)
-    commit = Commit_info(*comm_args)
-    parents = fix_parents(commit.parents)
-    return commit._replace(parents=parents)
-
-
-def is_stats(line):
-    stats_reg = r'\d{1,MAX_EXTENSION}}\t\d{1,MAX_EXTENSION}}\t.+\.\w{1,6}'
-    return is_match(stats_reg, line)
-
-
-def make_stats(line):
-    return Statistic(*line.split('\t'))
-
-
-def make_diff(line):
-    return line
-
-
-def is_blank(line):
-    return bool(line is None or line is '')
-
-
 def make_cmd(git_log_format=GIT_LOG_FORMAT, start=None, end=None, no_renames=False, no_merges=False, show_diff=True,
-             branch=None):
+             branch=None, file_extensions=None):
     '''
     start and end dates should be in YYYY-MM-DD str format
+    also file extensions should be of the form '\"*.go\"'  with the double quotes of they won't work as well
+    for example ' "*.go" "*.md" '
+
     '''
     git_log = ['git', 'log', '--all', '--numstat', '--format=format:{0}'.format(git_log_format)]
     if start is not None:
@@ -86,25 +64,30 @@ def make_cmd(git_log_format=GIT_LOG_FORMAT, start=None, end=None, no_renames=Fal
         git_log.append('--patch')
     if branch is not None:
         git_log.append(str(branch))
-    return git_log
+    if file_extensions is not None:
+        git_log.append(file_extensions)
+    return ' '.join(git_log)
 
 
-def process_lines(line):
+def process_lines(line, regex_dict):
     # most of the unicode decode errors/stats error caused by config files
     try:
-        line = line.decode('utf-8')
+        if not isinstance(line, str):
+            line = line.decode('utf-8')
     except UnicodeDecodeError as e:
-        print('Unicode error')
+        print('Unicode error ', e)
         print(line)
         return ('error', line)
     # turn bytes object into a string
     if is_blank(line):
         return (None, None)
-    if is_commit(line):
+    if is_commit(line, regex_dict['commit_reg']):
+        print('IS COMMIT')
         return ('commit', make_commit(line))
     try:
-        if is_stats(line):
-            return ('statistic', make_stats(line))
+        if is_stats(line, regex_dict['stats_reg']):
+            print('IS STAT')
+            return ('statistic', make_stats(line, regex_dict['stats_reg']))
     except TypeError:
         print(line)
         return ('error', line)
@@ -112,8 +95,11 @@ def process_lines(line):
     return ('diff', make_diff(line))
 
 
-def yield_commits(repo_path, **kwargs):
-    proc = subprocess.Popen(make_cmd(**kwargs), stdout=subprocess.PIPE, cwd=repo_path)
+def yield_gitlog_lines(repo_path, **kwargs):
+    command = make_cmd(**kwargs)
+    print('command ', command)
+    # shell = True indicates you are passing a string
+    proc = subprocess.Popen(command, stdout=subprocess.PIPE, cwd=repo_path, shell=True)
     for line in proc.stdout:
         yield line.strip()
 
@@ -133,67 +119,106 @@ def process_list_git_objs(lst):
     commit_objs = []
     curr_commit = None
     for item_name, item_obj in lst:
-        if item_name == 'commit':
-            # append old curr commit
-            if curr_commit is not None:
-                commit_objs.append(curr_commit)
-            # create a new commit obj to add to
-            curr_commit = Commit(item_obj)
-        elif item_name == 'error':
-            errors.append(item_obj)
-        elif item_name == 'statistic':
-            curr_commit.statistics_list.append(item_obj)
-        elif item_name == 'diff':
-            curr_commit.diffs_list.append(item_obj)
-        elif item_name is None:
-            # this is a blank line
+        try:
+            if item_name == 'commit':
+                # append old curr commit
+                if curr_commit is not None:
+                 commit_objs.append(curr_commit)
+                # create a new commit obj to add to
+                curr_commit = Commit(item_obj)
+            elif item_name == 'error':
+                errors.append(item_obj)
+            elif item_name == 'statistic':
+                curr_commit.statistics_list.append(item_obj)
+            elif item_name == 'diff':
+                curr_commit.diffs_list.append(item_obj)
+            elif item_name is None:
+                # this is a blank line
+                continue
+        except Exception as e:
+            print(item_name)
+            print(item_obj)
             continue
     # after loop, append last commit object and return list of obj
     commit_objs.append(curr_commit)
     return commit_objs, errors
 
 
-def is_index(line):
+def is_commit(line, commit_reg):
+    # js-ipfs commit_reg = r'[a-f0-9]{32}' + delim + '[a-f0-9]{7}' + delim + '[a-f0-9]{32}'
+    # go-ether commit_reg = r'[a-f0-9]{40}' + delim + '[a-f0-9]{9}' + delim + '[a-f0-9]{40}'
+
+    return is_match(commit_reg, line)
+
+
+def make_commit(line):
+    #     commit_line = re.sub(r'----',' ', commit_line.decode('utf-8'))
+    comm_args = line.split(DELIM)
+    comm_args.append(line)
+    commit = Commit_info(*comm_args)
+    parents = fix_parents(commit.parents)
+    return commit._replace(parents=parents)
+
+
+def is_stats(line, stats_reg):
+    # note that commit spacing isnt exactly a tab, it is greater than that so need to have the multiple spaces
+    #stats_reg = r'(\d{1,{}'.format(MAX_STATS_LEN)+'})(\s+)(\d{1,{}'.format(
+    #    MAX_STATS_LEN)+ '(\s+)([a-zA-Z/]+)(\.)(\w{1,{}'.format(MAX_FILE_EXT_LEN)})'
+    return is_match(stats_reg, line)
+
+
+def make_stats(line, stats_reg):
+    # NOTE THAT YOU CANNOT HAVE VARS IN REGEX STR
+    # this needs to match regex
+    g = re.match(stats_reg, line)
+    return Statistic(*g.groups())
+
+
+def make_diff(line):
+    return line
+
+
+def is_blank(line):
+    return bool(line is None or line is '')
+
+
+def is_index(line, index_reg, new_index_reg):
     '''Check for an Index line like: 'index 582ba6e..0cd52f1 100644'
     '''
-    i_reg = r'index [a-f0-9]{7}\.{2}[a-f0-9]{7}\s([0-9]{5,7})'
-    m = is_match(i_reg, line)
+
+    m = is_match(index_reg, line)
     if m:
         return True
     # for new files different index syntax
-    i_reg = r'index [a-f0-9]{7}\.{2}[a-f0-9]{7}'
-    return is_match(i_reg, line)
+    return is_match(new_index_reg, line)
 
 
-def parse_filetype(line):
-    i_reg = r'index [a-f0-9]{7}\.{2}[a-f0-9]{7}\s([0-9]{5,7})'
-    m = re.search(i_reg, line)
+def parse_filetype(line, index_reg):
+    m = re.search(index_reg, line)
     if m:
-        return m.groups()[0]
+        return m.groups()[-1]
     # try new file match - no file type
     return None
 
 
-def check_start_diff(line):
+def check_start_diff(line, start_diff_reg):
     '''
     Check for the start of a file changed in the diff output
     '''
-    d_reg = r'diff --git a/(.+\.\w{1,MAX_EXTENSION}})\b\s+\bb/(.+\.\w{1,MAX_EXTENSION}})'
-    return is_match(d_reg, line)
+    return is_match(start_diff_reg, line)
 
 
-def parse_filename(line):
+def parse_filename(line, start_diff_reg):
     '''
     Parse Filename changed from start of the diff
     '''
-    d_reg = r'diff --git a/(.+\.\w{1,MAX_EXTENSION}})\b\s+\bb/(.+\.\w{1,MAX_EXTENSION}})'
-    m = re.search(d_reg, line)
-    names = m.groups()
+    m = re.search(start_diff_reg, line)
+    names = list(filter(None, m.groups()))
     # note the filenames should be identical except in the case of a rename
     return names[1]
 
 
-def is_location_filename_info(line):
+def is_location_filename_info(line, location_reg):
     '''
     The format is the @@ from-file-range to-file-range @@ [header].
      The from-file-range is in the form -<start line>,<number of lines>,
@@ -202,14 +227,12 @@ def is_location_filename_info(line):
      If number-of-lines not shown it means that it is 0.
      Sample: '@@ -15,27 +15,33 @@ module.exports = function libp2p (self) {'
     '''
-    l_reg = r'@@ -([0-9]+),([0-9]+)\s\+([0-9]+),([0-9]+)\s@@\s*(.*)'
-    return is_match(l_reg, line)
+    return is_match(location_reg, line)
 
 
-def parse_location_filename_info(line):
+def parse_location_filename_info(line, location_reg):
     '''Pull out location of code change and function name if available'''
-    l_reg = r'@@ -([0-9]+),([0-9]+)\s\+([0-9]+),([0-9]+)\s@@\s*(.*)'
-    m = re.search(l_reg, line)
+    m = re.search(location_reg, line)
     g = m.groups()
     # this should be start, num changed to file is startline, num-lines
     if len(g[-1]) > 0 and re.match(r'\D+', g[-1]) is not None:
@@ -217,7 +240,7 @@ def parse_location_filename_info(line):
     return g[:-1], None
 
 
-def is_filenames_changed(line):
+def is_filenames_changed(line, filename_reg, devnull_file_reg):
     '''
     Check for preimage and post image filenames
     Samples:
@@ -225,16 +248,14 @@ def is_filenames_changed(line):
     '+++ b/src/core/components/libp2p.js'
     Note that new files will have /dev/null as the old filename
     '''
-    l_reg = r'--- a/(.+\.\w{1,MAX_EXTENSION}})|\+\+\+ b/(.+\.\w{1,MAX_EXTENSION}})'
-    filenames = is_match(l_reg, line)
+    filenames = is_match(filename_reg, line)
     if filenames:
         return True
-    l_reg = r'--- /dev/null|\+\+\+ /dev/null'
-    new = is_match(l_reg, line)
+    new = is_match(devnull_file_reg, line)
     return new
 
 
-def get_filenames_changed(line):
+def get_filenames_changed(line, filename_reg, devnull_file_reg):
     '''
     Extract Filename
     Samples:
@@ -242,23 +263,21 @@ def get_filenames_changed(line):
     '+++ b/src/core/components/libp2p.js'
     '''
     # first check for filenames of newly created files
-    l_reg = r'--- /dev/null'
-    m = re.search(l_reg, line)
-    if m:
+    new_file_reg, old_file_reg = devnull_file_reg.split('|')
+    m = re.search(new_file_reg, line)
+    if m is not None:
         return '/dev/null', None
-    l_reg = r'\+\+\+ /dev/null'
-    m = re.search(l_reg, line)
-    if m:
+    m = re.search(old_file_reg, line)
+    if m is not None:
+        print(m.groups())
         return None, '/dev/null'
-    l_reg = r'--- a/(.+\.\w{1,MAX_EXTENSION})|\+\+\+ b/(.+\.\w{1,MAX_EXTENSION}})'
-    m = re.search(l_reg, line)
+    m = re.search(filename_reg, line)
     g = m.groups()
     return g
 
 
-def is_raw_diff(line):
-    l_reg = r'- (.+)|\+ (.+)|(.+)'
-    return is_match(l_reg, line)
+def is_raw_diff(line, diff_line_reg):
+    return is_match(diff_line_reg, line)
 
 
 def is_rename(line):
@@ -308,7 +327,7 @@ def create_file_obj_dict(namedtup):
     return change_dict
 
 
-def parse_diff_text(lst_diff_lines):
+def parse_diff_text(lst_diff_lines, regex_dict):
     '''
     Parse the Output of the diff into a list of changes by line and code changed
     One diff text is made up of multiple file changes
@@ -354,7 +373,7 @@ def parse_diff_text(lst_diff_lines):
 
     for line in lst_diff_lines:
 
-        start = check_start_diff(line)
+        start = check_start_diff(line, regex_dict['start_diff_reg'])
         if is_blank(line):
             continue
 
@@ -364,13 +383,13 @@ def parse_diff_text(lst_diff_lines):
                 # decide how to make objc
                 curr_obj = make_file_obj(change_dict, curr_changes)
                 change_objs.append(curr_obj)
-            curr_file = parse_filename(line)
+            curr_file = parse_filename(line, regex_dict['start_diff_reg'])
             change_dict = create_file_obj_dict(FileChange)
             curr_changes = []
             change_dict['raw_diff'].append(line)
 
-        elif is_index(line):
-            change_dict['filetype'] = parse_filetype(line)
+        elif is_index(line, regex_dict['index_reg'], regex_dict['new_index_reg']):
+            change_dict['filetype'] = parse_filetype(line, regex_dict['index_reg'])
             change_dict['raw_diff'].append(line)
 
         elif is_rename(line):
@@ -388,9 +407,9 @@ def parse_diff_text(lst_diff_lines):
             change_dict['is_deletion'] = True
             change_dict['raw_diff'].append(line)
 
-        elif is_filenames_changed(line):
+        elif is_filenames_changed(line, regex_dict['filename_reg'], regex_dict['devnull_file_reg']):
             # keep track of files that changed
-            l = get_filenames_changed(line)
+            l = get_filenames_changed(line, regex_dict['filename_reg'], regex_dict['devnull_file_reg'])
             # if a filename is in the first group, it is the old filename
             # if it is in the second position, it is the new filename
             change_dict['raw_diff'].append(line)
@@ -401,11 +420,11 @@ def parse_diff_text(lst_diff_lines):
             else:
                 print('Error in filename parsing ', l, line)
 
-        elif is_location_filename_info(line):
+        elif is_location_filename_info(line, regex_dict['location_reg']):
             # in this, we need to add function name changed to list, add location changed to list
             # and then start a new change text block to append the raw text to
             change_dict['raw_diff'].append(line)
-            loc_info, funcname = parse_location_filename_info(line)
+            loc_info, funcname = parse_location_filename_info(line, regex_dict['location_reg'])
             change_dict['locations_changed'].append(loc_info)
             change_dict['functions_changed'].append(funcname)
             # increment number of changes
@@ -415,7 +434,7 @@ def parse_diff_text(lst_diff_lines):
                 change_dict['list_changes'].append(curr_changes)
             curr_changes = []
 
-        elif is_raw_diff(line):
+        elif is_raw_diff(line, regex_dict['diff_line_reg']):
             # get last entry in change dict and append line
             curr_changes.append(line)
             change_dict['raw_diff'].append(line)
@@ -429,28 +448,49 @@ def parse_diff_text(lst_diff_lines):
     return change_objs
 
 
-def gen_parse_log(repo_path, **kwargs):
-    cs = map(process_lines, yield_commits(repo_path, **kwargs))
+def gen_parse_log(repo_path, regex_dict, **kwargs):
+    # need the list to force execution
+    cs = map(lambda x: process_lines(x, regex_dict), yield_gitlog_lines(repo_path, **kwargs))
     commits, errors = process_list_git_objs(cs)
     for com in commits:
-        diff_objs = parse_diff_text(com.diffs_list)
-        com.diff_objs_list = diff_objs
+        try:
+            diff_objs = parse_diff_text(com.diffs_list, regex_dict)
+            com.diff_objs_list = diff_objs
+        except AttributeError as e:
+            print(e)
+            print(com.__dict__)
     return commits
 
 
-def gen_save_commitlog(repo_path, saving_to_fname, **kwargs):
-    commits = gen_parse_log(repo_path, **kwargs)
+def gen_save_commitlog_jsipfs(repo_path, saving_to_fname, **kwargs):
+    commits = gen_parse_log(repo_path, JS_IPFS_REGEX_DICT, **kwargs)
     errors = run_loc_test(commits)
     count_png_errors(errors)
     # select commit
-    to_test = list(filter(lambda x: x.commit_info.sha1 == TEST_COM10['sha1'], commits))[0]
-    check_test_dict(to_test, TEST_COM10)
-
-    to_test = list(filter(lambda x: x.commit_info.sha1 == TEST_COM1000['sha1'], commits))[0]
-    check_test_dict(to_test, TEST_COM1000)
+    for test_dict in [TEST_COM1000, TEST_COM10]:
+        to_test = list(filter(lambda x: x.commit_info.sha1 == test_dict['sha1'], commits))[0]
+        check_test_dict(to_test, test_dict)
 
     coms = list(map(serialize_to_dict, commits))
 
     print('Saving to ', os.path.join(DATA_DIR, saving_to_fname))
     with open(os.path.join(DATA_DIR, saving_to_fname), 'w') as f:
         json.dump(coms, f)
+
+
+def gen_save_commitlog_goethereum(repo_path, saving_to_fname, **kwargs):
+    commits = gen_parse_log(repo_path, GO_ETHEREUM_REGEX_DICT, **kwargs)
+    errors = run_loc_test(commits)
+    count_png_errors(errors)
+
+    # select commit - want to make these tests go ethereum specific
+    for test_dict in [TEST_GOETH_2017, TEST_GOETH_2018, TEST_GOETH_2016]:
+        to_test = list(filter(lambda x: x.commit_info.sha1 == test_dict['sha1'], commits))[0]
+        check_test_dict(to_test, test_dict)
+
+    coms = list(map(serialize_to_dict, commits))
+
+    print('Saving to ', os.path.join(DATA_DIR, saving_to_fname))
+    with open(os.path.join(DATA_DIR, saving_to_fname), 'w') as f:
+        json.dump(coms, f)
+    return commits, errors

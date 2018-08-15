@@ -2,11 +2,11 @@ import argparse
 import datetime
 
 
-from gitlog_parser import gen_save_commitlog
-from fill_db import fill_db
+from analysis.gitlog_parser import gen_save_commitlog_jsipfs, gen_save_commitlog_goethereum
+from analysis.fill_db import fill_jsipfs_db, fill_goether_db
 
 
-# sample command for jsipfs python analysis/log_fill_db.py '/Users/Lraymond/Python/gitkit_research/js-ipfs'
+# sample command for jsipfs python analysis/log_fill_db.py '/Users/Lraymond/Python/OS_research/js-ipfs'
 
 if __name__ == '__main__':
     str_date = datetime.datetime.now().strftime('%Y-%m-%d')
@@ -27,11 +27,16 @@ if __name__ == '__main__':
     else:
         fname = args.fname
 
-
     print('Generating and saving commit log to ', fname)
-    gen_save_commitlog(args.repo_path, fname, start=args.start, end=args.end)
-    print('Filling Database')
-    fill_db(fname)
+
+    if 'ipfs' in fname:
+        gen_save_commitlog_jsipfs(args.repo_path, fname, start=args.start, end=args.end)
+        print('Filling Database')
+        fill_jsipfs_db(fname)
+    elif 'ethereum' in fname:
+        gen_save_commitlog_goethereum(args.repo_path, fname, start=args.start, end=args.end)
+        fill_goether_db(fname)
+
 
 
 

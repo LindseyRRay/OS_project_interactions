@@ -3,7 +3,7 @@ import re
 
 
 def test_len_changes_matches(comm_obj):
-    # for each FileChange objectm assert the number of location changes matches number of changes per file
+    # for each FileChange object assert the number of location changes matches number of changes per file
     error_dict = {
         'mismatched_location': [],
         'count_mismatch': []
@@ -11,9 +11,17 @@ def test_len_changes_matches(comm_obj):
     errors = False
     for fchange in comm_obj.diff_objs_list:
         if len(fchange.locations_changed) != len(fchange.list_changes):
+            print(fchange.list_changes)
+            print(fchange.locations_changed)
             errors = True
             error_dict['mismatched_location'].append(fchange)
         if len(fchange.locations_changed) != fchange.num_changes or len(fchange.list_changes) != fchange.num_changes:
+            print('NUM CHANGES ERROR')
+            print(fchange.num_changes)
+            print(fchange.locations_changed)
+            print(len(fchange.locations_changed))
+            print(fchange.list_changes)
+            print(len(fchange.list_changes))
             errors = True
             error_dict['count_mismatch'].append(fchange)
     return errors, error_dict
@@ -31,7 +39,7 @@ def count_png_errors(errors):
     for e in errors:
         for diff in e['mismatched_location']:
             # if first line of raw diff contains a png file, continue
-            if re.match(r'diff --git a/.+\.png', diff.raw_diff[0]):
+            if re.match(r'diff --git a/[\w/]  +\.png', diff.raw_diff[0]):
                 continue
             else:
                 print('NOT PNG FILE ', diff.raw_diff[0]),

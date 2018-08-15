@@ -10,8 +10,8 @@ from sqlalchemy.orm import sessionmaker
 
 from sqlalchemy.dialects.postgresql import JSON
 
-from helpers import connect_to_db
-from dev import LOCAL_DB
+from analysis.helpers import connect_to_db
+from analysis.dev import LOCAL_DB, LOCAL_DB_GOETH
 
 
 Base = declarative_base()
@@ -130,7 +130,7 @@ class Change(Base):
 # create database and turn on logging
 if __name__ == '__main__':
 
-    session, engine = connect_to_db(LOCAL_DB)
+    session, engine = connect_to_db(LOCAL_DB_GOETH)
     meta = MetaData()
     # drop all tables from database - note this is not something to run if not creating
     meta.drop_all(engine)

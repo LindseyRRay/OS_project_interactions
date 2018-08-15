@@ -2,7 +2,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 
-from objects import Commit_info, Statistic, FileChange, Commit
+from analysis.objects import Commit_info, Statistic, FileChange, Commit
 
 
 def serialize_from_dict(commit_dict):
