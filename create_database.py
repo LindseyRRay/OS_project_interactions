@@ -1,11 +1,8 @@
 from sqlalchemy.orm.exc import NoResultFound, MultipleResultsFound
 import funcy
 from datetime import datetime
-import os
-import json
 
-from analysis.dev import DELIM, RAW_DIFF_DELIM, JS_IPFS_PARSED_COMMITS_FILENAME, DATA_DIR, LOCAL_DB
-from analysis.helpers import serialize_from_dict, connect_to_db
+from analysis.dev import DELIM, RAW_DIFF_DELIM
 
 from analysis.models import Repo, Commit, Diff, Developer, Change
 

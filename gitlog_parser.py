@@ -489,10 +489,11 @@ def gen_save_commitlog_goethereum(repo_path, saving_to_fname, **kwargs):
         json.dump(coms, f)
 
     # select commit - want to make these tests go ethereum specific
-    for test_dict in [TEST_GOETH_2017, TEST_GOETH_2018, TEST_GOETH_2016]:
-        to_test = list(filter(lambda x: x.commit_info.sha1 == test_dict['sha1'], commits))[0]
-        check_test_dict(to_test, test_dict)
     try:
+        for test_dict in [TEST_GOETH_2017, TEST_GOETH_2018, TEST_GOETH_2016]:
+            print('Testing ', test_dict['sha1'])
+            to_test = list(filter(lambda x: x.commit_info.sha1 == test_dict['sha1'], commits))[0]
+            check_test_dict(to_test, test_dict)
         count_png_errors(errors)
     except IndexError as e:
         print(e)

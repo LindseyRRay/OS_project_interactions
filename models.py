@@ -5,8 +5,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy import UniqueConstraint
 
-from sqlalchemy import create_engine, MetaData
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import MetaData
 
 from sqlalchemy.dialects.postgresql import JSON
 
@@ -14,6 +13,9 @@ from analysis.helpers import connect_to_db
 # from helpers import connect_to_db
 from analysis.dev import LOCAL_DB, LOCAL_DB_GOETH
 # from dev import LOCAL_DB_GOETH
+
+# note when running this to create the database, can't run from top level directory
+# instead, need to run python models.py in the analysis/ directory and also need to change the paths from analysis.dev to dev
 
 
 Base = declarative_base()

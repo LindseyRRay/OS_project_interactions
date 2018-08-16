@@ -34,6 +34,8 @@ if __name__ == '__main__':
         print('Filling Database')
         fill_jsipfs_db(fname)
     elif 'ethereum' in fname:
+        # note that this code isn't used to run the repo because ethereum stuff is so large
+
         gen_save_commitlog_goethereum(args.repo_path, fname, start=args.start, end=args.end)
         fill_goether_db(fname)
 
