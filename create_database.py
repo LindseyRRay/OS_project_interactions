@@ -4,10 +4,10 @@ from datetime import datetime
 import os
 import json
 
-from dev import DELIM, RAW_DIFF_DELIM, JS_IPFS_PARSED_COMMITS_FILENAME, DATA_DIR, LOCAL_DB
-from helpers import serialize_from_dict, connect_to_db
+from analysis.dev import DELIM, RAW_DIFF_DELIM, JS_IPFS_PARSED_COMMITS_FILENAME, DATA_DIR, LOCAL_DB
+from analysis.helpers import serialize_from_dict, connect_to_db
 
-from models import Repo, Commit, Diff, Developer, Change
+from analysis.models import Repo, Commit, Diff, Developer, Change
 
 
 def get_one_or_create(session, model, **kwargs):
